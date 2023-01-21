@@ -1,3 +1,4 @@
+import threading
 from django.http import JsonResponse
 from random import uniform
 from math import sqrt
@@ -6,6 +7,13 @@ from time import sleep, time
 import logging
 
 from ulid import ULID
+
+'''
+listando: curl http://localhost:8000/norm/
+
+registrando tarefa: curl http://localhost:8000/norm/1000000000/
+'''
+
 
 
 logger = logging.getLogger('__name__')
@@ -42,6 +50,7 @@ class Queue:
         self._tasks_to_do = []
         self._tasks_running = []
         self._tasks_processed = []
+        self._start_threads = False
 
     def find(self, id):
         for t in self._tasks:
@@ -50,6 +59,15 @@ class Queue:
 
     def all(self):
         return [t.to_dict() for t in self._tasks_to_do + self._tasks_processed + self._tasks_running]
+
+    def start_threads(self, number_of_threads=2):
+        self._start_threads = True
+        for _ in range(number_of_threads):
+            Thread(target=consumer, args=(tasks,)).start()
+
+    @property
+    def there_are_no_thread_yet(self):
+        return not self._start_threads
 
     @property
     def tasks_todo(self):
@@ -79,8 +97,8 @@ tasks = Queue()
 
 def consumer(tasks):
     while True:
-        logger.warning('Quantidade de tasks todo: %d' % len(tasks.tasks_todo))
-        logger.warning('Quantidade de tasks runnning: %d' % len(tasks.tasks_running))
+        logger.info('Quantidade de tasks todo: %d' % len(tasks.tasks_todo))
+        logger.info('Quantidade de tasks runnning: %d' % len(tasks.tasks_running))
         try:
             task = tasks.get_new_tasks()
 
@@ -93,10 +111,6 @@ def consumer(tasks):
             sleep(10)
             continue
 
-thread1 = Thread(target=consumer, args=(tasks,))
-thread1.start()
-thread2 = Thread(target=consumer, args=(tasks,))
-thread2.start()
 
 def worker(task):
     task.status = 'running ...'
@@ -120,6 +134,9 @@ def norm(size=10000):
 
 def register(request, size):
 
+    if tasks.there_are_no_thread_yet:
+        tasks.start_threads()
+
     task = Task(size)
     tasks.register(task)
     return JsonResponse({'task_id': task.id})
@@ -131,3 +148,7 @@ def list_tasks(request):
     list_ = tasks.all()
 
     return JsonResponse({'result': list_})
+
+
+def number_of_threads(request):
+    return JsonResponse({'threads_number': threading.active_count()})
